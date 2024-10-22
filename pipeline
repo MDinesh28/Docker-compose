@@ -1,0 +1,76 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Docker Login') {
+            steps {
+                script {
+                    // Login to DockerHub
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
+                }
+            }
+        }
+
+        stage('Process Branches') {
+            steps {
+                script {
+                    def branches = ['imdb', 'quora', 'candycrush'] // List of branches to process
+                    for (branch in branches) {
+                        stage("Checkout Code - ${branch}") {
+                            // Checkout code for the current branch
+                            git branch: branch, url: 'https://github.com/MDinesh28/web-app.git'
+                        }
+
+                        stage("Build Docker Image - ${branch}") {
+                            // Build the Docker image for the current branch
+                            sh "docker build -t ${branch} ."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Images to DockerHub') {
+            steps {
+                script {
+                    def branches = ['imdb', 'quora', 'candycrush'] // List of branches to process
+                    for (branch in branches) {
+                        // Tag and push the Docker image for the current branch to DockerHub
+                        sh "docker tag ${branch} $DOCKER_USERNAME/${branch}"
+                        sh "docker push $DOCKER_USERNAME/${branch}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy with Docker Compose') {
+            steps {
+                script {
+                    // Create docker-compose.yml file
+                    writeFile file: 'docker-compose.yml', text: '''
+                    version: '3.8'
+
+                    services:
+                      imdb:
+                        image: ${DOCKER_USERNAME}/imdb
+                        ports:
+                          - "81:80" # Map port 80 of the container to port 81 on the host
+
+                      quora:
+                        image: ${DOCKER_USERNAME}/quora
+                        ports:
+                          - "82:80" # Map port 80 of the container to port 82 on the host
+
+                      candycrush:
+                        image: ${DOCKER_USERNAME}/candycrush
+                        ports:
+                          - "83:80" # Map port 80 of the container to port 83 on the host
+                    '''
+                    
+                    // Start the containers using Docker Compose
+                    sh 'docker-compose up -d'
+                }
+            }
+        }
+    }
+}
